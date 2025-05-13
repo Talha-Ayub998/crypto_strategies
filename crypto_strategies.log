@@ -1,0 +1,4 @@
+2025-05-14 00:46:14,227 — INFO — TG error: ('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer'))
+2025-05-14 00:46:26,987 — INFO — TG error: ('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer'))
+2025-05-14 00:46:53,687 — INFO — TG error: ('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer'))
+2025-05-14 00:49:52,553 — INFO — TG error: ('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer'))
