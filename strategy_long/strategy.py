@@ -4,7 +4,7 @@ Binance USDT‑M Futures Top‑20 Long Strategy — Full Flowchart Implementatio
 import schedule, time
 from utils import (
     client, log, tg_send, fetch_klines, vwap, roc,
-    crossed_above, btc_above_50ma, symbol_info, adjust_qty_price
+    crossed_above, btc_above_50ma, symbol_info, adjust_qty_price, place_order
 )
 
 # === Strategy Constants ===
@@ -112,7 +112,7 @@ def rebalance_longs():
         alloc_each = cap / len(top20)
         summary = []
         for c in top20:
-            place_entry(c["symbol"], alloc_each, summary)
+            place_order(c["symbol"], alloc_each, "BUY", summary, discount=0.98)
 
         tg_send("🟢 Long Orders Summary:\n" + "\n".join(summary))
 

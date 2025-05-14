@@ -5,7 +5,7 @@ import schedule, time, json
 from utils import (
     client, log, tg_send, fetch_klines, vwap, roc,
     crossed_below, btc_below_50ma, btc_above_50ma,
-    symbol_info, adjust_qty_price
+    symbol_info, adjust_qty_price, place_order
 )
 
 # === Constants from Flowchart ===
@@ -116,7 +116,7 @@ def rebalance_shorts():
         alloc_each = cap / len(bottom20)
         summary = []
         for c in bottom20:
-            place_short(c["symbol"], alloc_each, summary)
+            place_order(c["symbol"], alloc_each, "SELL", summary, discount=1.02)
 
         tg_send("🔻 Short Orders Summary:\n" + "\n".join(summary))
 

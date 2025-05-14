@@ -134,3 +134,38 @@ def btc_below_50ma():
     df = df.iloc[:-1]
     ma = df.close.rolling(50).mean().iloc[-1]
     return df.close.iloc[-1] < ma
+
+# === Place an order ==========================================================
+
+def place_order(symbol, usdt_alloc, side, summary, discount):
+    try:
+        df = fetch_klines(symbol)
+        if df.empty:
+            summary.append(f"{symbol} ❌ No data")
+            return None
+
+        vw = vwap(df.iloc[-1:])
+        price = vw * discount
+        qty = usdt_alloc / price
+        price, qty = adjust_qty_price(symbol, price, qty)
+        if qty == 0:
+            summary.append(f"{symbol} ❌ qty=0")
+            return None
+
+        order = client.futures_create_order(
+            symbol=symbol,
+            side=side,
+            type="LIMIT",
+            timeInForce="GTC",
+            quantity=qty,
+            price=str(price)
+        )
+
+        summary.append(
+            f"{symbol} | {side} | Qty: {qty} | Price: {price:.4f} | OrderID: {order['orderId']} | {order.get('status', '-')}"
+        )
+        return order
+    except Exception as e:
+        log(f"{symbol} order failed: {e}")
+        summary.append(f"{symbol} ❌ Error: {e}")
+        return None
