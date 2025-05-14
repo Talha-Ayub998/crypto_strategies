@@ -11,7 +11,7 @@ import time
 
 # Set the root path for strategies
 STRATEGIES_ROOT = Path(__file__).resolve().parent
-from utils import reset_trades_for_new_day, print_log, handle_exceptions
+from f_utils import reset_trades_for_new_day, print_log, handle_exceptions
 
 from constant import ASSET_TRADES
 # Specify the Python executable path explicitly
