@@ -1,7 +1,12 @@
 """
 Top‑20 SHORT Futures Strategy (Full Flowchart Implementation)
 """
+import sys
+import os
 import schedule, time, json
+
+# Add parent directory to sys.path so 'utils' can be imported
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import (
     client, log, tg_send, fetch_klines, vwap, roc,
     crossed_below, btc_below_50ma, btc_above_50ma,

@@ -1,7 +1,12 @@
 """
 Binance USDT‑M Futures Top‑20 Long Strategy — Full Flowchart Implementation
 """
-import schedule, time
+import sys
+import os
+import schedule, time, json
+
+# Add parent directory to sys.path so 'utils' can be imported
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import (
     client, log, tg_send, fetch_klines, vwap, roc,
     crossed_above, btc_above_50ma, symbol_info, adjust_qty_price, place_order
