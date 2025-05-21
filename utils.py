@@ -20,7 +20,8 @@ client.FUTURES_URL = "https://testnet.binancefuture.com/fapi"
 
 
 #Constant
-FARID_EXCEPTION_CHANEL = "https://hooks.slack.com/services/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"
+FARID_EXCEPTION_CHANEL = os.getenv("EXCEPTION_CHANEL")
+
 def handle_exceptions(func):
     # Decorator to handle all exceptions
     def wrapper(*args, **kwargs):
