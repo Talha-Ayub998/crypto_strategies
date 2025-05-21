@@ -37,13 +37,16 @@ def top20_candidates():
             df = fetch_klines(sym)
             if df.empty or len(df) < 31:
                 continue
+            
             df = df.iloc[:-1]  # remove current day
             dvol = (df.volume * df.close).rolling(20).mean().iloc[-1]
             if dvol < VOL_LIMIT:
                 continue
+
             ma20 = df.close.rolling(20).mean()
             if not crossed_above(df.close, ma20):
                 continue
+
             r = roc(df.close, 20).iloc[-1]
             candidates.append({"symbol": sym, "dvol": dvol, "roc": r})
         except Exception as e:
@@ -58,13 +61,16 @@ def place_entry(symbol, usdt_alloc, summary):
         if df.empty:
             summary.append(f"{symbol} ❌ No data")
             return
+        
         vw = vwap(df.iloc[-1:])
         price = vw * VWAP_DISCOUNT
         qty = usdt_alloc / price
+
         price, qty = adjust_qty_price(symbol, price, qty)
         if qty == 0:
             summary.append(f"{symbol} ❌ qty=0")
             return
+        
         order = client.futures_create_order(
             symbol=symbol, side="BUY", type="LIMIT",
             timeInForce="GTC", quantity=qty, price=str(price)
@@ -78,7 +84,7 @@ def place_entry(symbol, usdt_alloc, summary):
 def close_all_longs():
     try:
         tg_send("BTC < 50MA — Closing all longs ❌")
-        positions = [p for p in client.futures_position_information() if float(p["positionAmt"]) > 0]
+        positions = [p for p in client.futures_position_information() if float(p["positionAmt"]) > 0 and float(p["entryPrice"]) < float(p["markPrice"])]
         for p in positions:
             sym = p["symbol"]
             amt = abs(float(p["positionAmt"]))
@@ -154,10 +160,12 @@ def check_exit_conditions():
                     continue
                 close_above_20ma = df.close.iloc[-1] > df.close.rolling(20).mean().iloc[-1]
                 still_top20 = sym in top20
+
                 btc_ok = btc_above_50ma()
                 if not (close_above_20ma and still_top20 and btc_ok):
                     amt = abs(float(p["positionAmt"]))
                     price = float(p["markPrice"])
+
                     _, qty = adjust_qty_price(sym, price, amt)
                     if qty > 0:
                         client.futures_create_order(symbol=sym, side="SELL", type="MARKET", quantity=qty, reduceOnly=True)

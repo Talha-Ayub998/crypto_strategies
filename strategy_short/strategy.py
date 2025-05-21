@@ -42,9 +42,11 @@ def bottom20_candidates():
             dvol = (df.volume * df.close).rolling(20).mean().iloc[-1]
             if dvol < VOL_LIMIT:
                 continue
+            
             ma10 = df.close.rolling(10).mean()
             if not crossed_below(df.close, ma10):
                 continue
+
             r = roc(df.close, 20).iloc[-1]
             candidates.append({"symbol": sym, "dvol": dvol, "roc": r})
         except Exception as e:
@@ -62,10 +64,12 @@ def place_short(symbol, usdt_alloc, summary):
         vw = vwap(df.iloc[-1:])
         price = vw * VWAP_DISCOUNT
         qty = usdt_alloc / price
+
         price, qty = adjust_qty_price(symbol, price, qty)
         if qty == 0:
             summary.append(f"{symbol} ❌ qty=0")
             return None
+        
         order = client.futures_create_order(
             symbol=symbol, side="SELL", type="LIMIT",
             timeInForce="GTC", quantity=qty, price=str(price)
@@ -81,7 +85,7 @@ def place_short(symbol, usdt_alloc, summary):
 def close_all_shorts():
     try:
         tg_send("BTC > 50MA — Closing all shorts ❌")
-        positions = [p for p in client.futures_position_information() if float(p["positionAmt"]) < 0]
+        positions = [p for p in client.futures_position_information() if float(p["positionAmt"]) < 0 and float(p["entryPrice"]) > float(p["markPrice"])]
         for p in positions:
             try:
                 sym = p["symbol"]
