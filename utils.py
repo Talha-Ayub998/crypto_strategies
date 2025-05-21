@@ -1,4 +1,5 @@
-import os, math, time, logging, functools
+import traceback
+import os, math, time, logging, functools, json
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import pandas as pd, requests
@@ -15,6 +16,132 @@ TG_CHAT  = os.getenv("TELEGRAM_CHAT_ID")
 
 client = Client(API_KEY, API_SEC, testnet=True)
 client.FUTURES_URL = "https://testnet.binancefuture.com/fapi"
+
+
+
+#Constant
+FARID_EXCEPTION_CHANEL = "https://hooks.slack.com/services/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"
+def handle_exceptions(func):
+    # Decorator to handle all exceptions
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            log(f"Alert: handle_exceptions ({e})")
+            error_type = e.__class__.__name__
+            environment = "local"
+            send_slack_validator_notification(
+                error_type, environment)
+    return wrapper  # Return the wrapped function
+
+@handle_exceptions
+def handle_imports_error(e):
+    try:
+        error_type = e.__class__.__name__
+        environment = "local"
+        send_slack_validator_notification(
+            error_type, environment)
+    except Exception as e:
+        log("Error on handle_imports_error", e)
+
+
+def format_slack_message(
+    title,
+    message,
+    emoji='red_circle',
+    print_stack_trace=False,
+    module=None,
+    environment=None,
+) -> dict:
+    header = f":{emoji}: :{emoji}:   *{title}*   :{emoji}: :{emoji}:"
+
+    blocks = [{
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": header
+        }
+    }]
+
+    if module:
+        module_block = {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f":gear: :gear:  {module}  :gear: :gear:"
+            }
+        }
+        blocks.append(module_block)
+
+    blocks.append({
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": f":red_circle: :red_circle:   {environment}   :red_circle: :red_circle:"
+        }
+    })
+
+    if print_stack_trace:
+        stack_trace = traceback.format_exc()
+        stack_trace_lines = stack_trace.splitlines()
+        formatted_stack_trace = "\n".join(
+            [f"{line}" for line in stack_trace_lines])
+        stack_trace_block = {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*Stack Trace:*\n```\n{formatted_stack_trace}\n```"
+            }
+        }
+        blocks.append(stack_trace_block)
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    message.append(f"-Timestamp: {timestamp}")
+
+    details_text = f"*Details:*\n" + '\n'.join(message)
+    details_block = {
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": details_text
+        }
+    }
+    blocks.append(details_block)
+
+    blocks.append({
+        "type": "divider"
+    })
+
+    return {"blocks": blocks}
+
+
+def send_slack_validator_notification(error_type, environment ,stack_trace=False):
+    url = FARID_EXCEPTION_CHANEL
+    title = f":red_circle: :red_circle:   Error: {error_type}   :red_circle: :red_circle:"
+    module = f"Default Service"
+
+
+    if not stack_trace:
+        stack_trace = traceback.format_exc()
+        stack_trace_lines = stack_trace.splitlines()
+        print(f'Alert: send_slack_validator_notification (AuthorizationError: {stack_trace_lines})')
+
+    """Call format_slack_message to create the Slack message"""
+    slack_message = format_slack_message(
+        title=title,
+        message=["Additional details..."],
+        print_stack_trace=stack_trace,
+        module=module,
+        environment=environment,
+    )
+
+    """Convert the Slack message to JSON"""
+    json_data = json.dumps(slack_message)
+
+    response = requests.post(url, data=json_data)
+    if response.status_code != 200:
+        log(f"Alert: send_slack_validator_notification ({response.status_code} {response.text})")
+        raise Exception(response.status_code, response.text)
 
 # === Logger =================================================================
 def get_logger(name="futures_bot"):

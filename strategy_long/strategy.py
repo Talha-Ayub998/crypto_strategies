@@ -9,7 +9,8 @@ import schedule, time, json
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import (
     client, log, tg_send, fetch_klines, vwap, roc,
-    crossed_above, btc_above_50ma, symbol_info, adjust_qty_price, place_order
+    crossed_above, btc_above_50ma, symbol_info, adjust_qty_price, place_order,
+    handle_exceptions
 )
 
 # === Strategy Constants ===
@@ -102,6 +103,7 @@ def close_all_longs():
         tg_send(f"Close error: {e}")
 
 # === Main Daily Routine ===
+@handle_exceptions
 def rebalance_longs():
     try:
         if not btc_above_50ma():
@@ -132,6 +134,7 @@ def rebalance_longs():
         tg_send(f"Rebalance error: {e}")
 
 # === Market Fallback ===
+@handle_exceptions
 def noon_fill_check():
     try:
         open_orders = client.futures_get_open_orders()
@@ -147,6 +150,7 @@ def noon_fill_check():
         log(f"noon_fill_check error: {e}")
 
 # === Exit Monitor ===
+@handle_exceptions
 def check_exit_conditions():
     try:
         active_positions = [p for p in client.futures_position_information() if float(p["positionAmt"]) > 0]

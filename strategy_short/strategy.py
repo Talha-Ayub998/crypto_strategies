@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import (
     client, log, tg_send, fetch_klines, vwap, roc,
     crossed_below, btc_below_50ma, btc_above_50ma,
-    symbol_info, adjust_qty_price, place_order
+    symbol_info, adjust_qty_price, place_order, handle_exceptions
 )
 
 # === Constants from Flowchart ===
@@ -104,6 +104,7 @@ def close_all_shorts():
         tg_send(f"Short close error: {e}")
 
 # === Daily Execution ===
+@handle_exceptions
 def rebalance_shorts():
     try:
         if not btc_below_50ma():
@@ -134,6 +135,7 @@ def rebalance_shorts():
         tg_send(f"Rebalance error: {e}")
 
 # === Noon Order Conversion ===
+@handle_exceptions
 def noon_fill_check():
     try:
         open_orders = client.futures_get_open_orders()
@@ -149,6 +151,7 @@ def noon_fill_check():
         log(f"noon_fill_check error: {e}")
 
 # === Exit Condition Monitoring ===
+@handle_exceptions
 def check_exit_conditions():
     try:
         active_positions = [p for p in client.futures_position_information() if float(p["positionAmt"]) < 0]
