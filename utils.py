@@ -211,10 +211,13 @@ def fetch_klines(symbol, interval="1d", lookback_days=60):
 
 def roc(series, period=20):
     return series.pct_change(periods=period) * 100
+
 def vwap(df):
     return (df.close * df.volume).sum() / df.volume.sum()
+
 def crossed_above(close, ma):
     return close.iloc[-2] < ma.iloc[-2] and close.iloc[-1] > ma.iloc[-1]
+
 def crossed_below(close, ma):
     return close.iloc[-2] > ma.iloc[-2] and close.iloc[-1] < ma.iloc[-1]
 
@@ -252,7 +255,7 @@ def btc_above_50ma():
     if len(df) < 51:
         return False
     df = df.iloc[:-1]
-    ma = df.close.rolling(50).mean().iloc[-1]
+    ma =  moving_average(df.close, 50).iloc[-1]
     return df.close.iloc[-1] > ma
 
 def btc_below_50ma():
@@ -260,7 +263,7 @@ def btc_below_50ma():
     if len(df) < 51:
         return False
     df = df.iloc[:-1]
-    ma = df.close.rolling(50).mean().iloc[-1]
+    ma =  moving_average(df.close, 50).iloc[-1]
     return df.close.iloc[-1] < ma
 
 # === Place an order ==========================================================
@@ -297,3 +300,13 @@ def place_order(symbol, usdt_alloc, side, summary, discount):
         log(f"{symbol} order failed: {e}")
         summary.append(f"{symbol} ❌ Error: {e}")
         return None
+
+def moving_average(series, period=20):
+    """
+    Calculate the simple moving average (SMA) of a pandas Series.
+    """
+    try:
+        return series.rolling(period).mean()
+    except Exception as e:
+        log(f"Error on moving average {e}")
+

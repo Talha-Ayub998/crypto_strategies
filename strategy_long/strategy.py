@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import (
     client, log, tg_send, fetch_klines, vwap, roc,
     crossed_above, btc_above_50ma, symbol_info, adjust_qty_price, place_order,
-    handle_exceptions
+    handle_exceptions, moving_average
 )
 
 # === Strategy Constants ===
@@ -44,7 +44,7 @@ def top20_candidates():
             if dvol < VOL_LIMIT:
                 continue
 
-            ma20 = df.close.rolling(20).mean()
+            ma20 = moving_average(df.close, 20)
             if not crossed_above(df.close, ma20):
                 continue
 
@@ -162,7 +162,7 @@ def check_exit_conditions():
                 df = fetch_klines(sym)
                 if df.empty or len(df) < 2:
                     continue
-                close_above_20ma = df.close.iloc[-1] > df.close.rolling(20).mean().iloc[-1]
+                close_above_20ma = df.close.iloc[-1] > moving_average(df.close, 20).iloc[-1]
                 still_top20 = sym in top20
 
                 btc_ok = btc_above_50ma()

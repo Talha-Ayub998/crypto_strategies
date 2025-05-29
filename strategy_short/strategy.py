@@ -10,7 +10,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import (
     client, log, tg_send, fetch_klines, vwap, roc,
     crossed_below, btc_below_50ma, btc_above_50ma,
-    symbol_info, adjust_qty_price, place_order, handle_exceptions
+    symbol_info, adjust_qty_price, place_order, handle_exceptions,
+    moving_average
 )
 
 # === Constants from Flowchart ===
@@ -42,8 +43,8 @@ def bottom20_candidates():
             dvol = (df.volume * df.close).rolling(20).mean().iloc[-1]
             if dvol < VOL_LIMIT:
                 continue
-            
-            ma10 = df.close.rolling(10).mean()
+
+            ma10 = moving_average(df.close, 10)
             if not crossed_below(df.close, ma10):
                 continue
 
@@ -163,7 +164,7 @@ def check_exit_conditions():
                 df = fetch_klines(sym)
                 if df.empty or len(df) < 2:
                     continue
-                close_below_5ma = df.close.iloc[-1] < df.close.rolling(5).mean().iloc[-1]
+                close_below_5ma = df.close.iloc[-1] < moving_average(df.close, 5).iloc[-1]
                 still_bottom20 = sym in bottom20
                 btc_below = btc_below_50ma()
 
