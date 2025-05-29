@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import (
     client, log, tg_send, fetch_klines, vwap, roc,
     crossed_above, btc_above_50ma, symbol_info, adjust_qty_price, place_order,
-    handle_exceptions, moving_average
+    handle_exceptions, moving_average, get_margin_ratio, liquidate_all, reduce_positions
 )
 
 # === Strategy Constants ===
@@ -38,7 +38,7 @@ def top20_candidates():
             df = fetch_klines(sym)
             if df.empty or len(df) < 31:
                 continue
-            
+
             df = df.iloc[:-1]  # remove current day
             dvol = (df.volume * df.close).rolling(20).mean().iloc[-1]
             if dvol < VOL_LIMIT:
@@ -181,11 +181,37 @@ def check_exit_conditions():
     except Exception as e:
         log(f"check_exit_conditions error: {e}")
 
+@handle_exceptions
+def manage_margin():
+    try:
+        ratio = get_margin_ratio()
+        log(f"⚠️ Margin Ratio: {ratio:.2f}%")
+
+        if ratio < 5:
+            tg_send("🔻 Margin < 5% — LIQUIDATE ALL POSITIONS ⚠️")
+            liquidate_all()
+        elif 5 <= ratio < 10:
+            tg_send("🔸 Margin 5–10% — Sell/buy to cover 50% of portfolio")
+            reduce_positions(0.50)
+        elif 10 <= ratio < 20:
+            tg_send("🔸 Margin 10–20% — Sell/buy to cover 30% of portfolio")
+            reduce_positions(0.30)
+        elif 20 <= ratio < 30:
+            tg_send("🔸 Margin 20–30% — Sell/buy to cover 30% of portfolio")
+            reduce_positions(0.30)
+        else:
+            pass  # Healthy margin, no action needed
+
+    except Exception as e:
+        log(f"manage_margin error: {e}")
+
+
 # === Scheduler ===
 def main():
     schedule.every().day.at("00:01").do(rebalance_longs)
     schedule.every().day.at("12:00").do(noon_fill_check)
     schedule.every(CHECK_INTERVAL).seconds.do(check_exit_conditions)
+    # schedule.every(5).minutes.do(manage_margin)
     tg_send("✅ Long Strategy Bot Running")
     while True:
         schedule.run_pending()

@@ -310,3 +310,69 @@ def moving_average(series, period=20):
     except Exception as e:
         log(f"Error on moving average {e}")
 
+def get_margin_ratio():
+    """
+    Returns margin ratio as a percentage: (Equity / Maint. Margin) * 100
+    """
+    try:
+        acc_info = client.futures_account()
+        total_maint_margin = float(acc_info.get("totalMaintMargin", 0))
+        total_wallet_balance = float(acc_info.get("totalWalletBalance", 0))
+
+        if total_maint_margin == 0:
+            return 100  # Avoid division by zero, assume safe
+
+        margin_ratio = (total_wallet_balance / total_maint_margin) * 100
+        return margin_ratio
+    except Exception as e:
+        log(f"Margin ratio error: {e}")
+        return 100  # Failsafe
+    
+def reduce_positions(pct):
+    """
+    Reduce all open positions by given pct (0.30 = 30%)
+    """
+    try:
+        positions = client.futures_position_information()
+        for pos in positions:
+            amt = float(pos["positionAmt"])
+            if amt == 0:
+                continue  # No position
+
+            sym = pos["symbol"]
+            side = "BUY" if amt < 0 else "SELL"  # Opposite side to reduce
+            mark_price = float(pos["markPrice"])
+            reduce_qty = abs(amt) * pct
+            _, qty = adjust_qty_price(sym, mark_price, reduce_qty)
+
+            if qty > 0:
+                client.futures_create_order(
+                    symbol=sym, side=side, type="MARKET", quantity=qty, reduceOnly=True
+                )
+                log(f"{sym} reduced by {pct*100:.0f}%")
+    except Exception as e:
+        log(f"reduce_positions error: {e}")
+
+def liquidate_all():
+    """
+    Close all positions at market
+    """
+    try:
+        positions = client.futures_position_information()
+        for pos in positions:
+            amt = float(pos["positionAmt"])
+            if amt == 0:
+                continue
+
+            sym = pos["symbol"]
+            side = "BUY" if amt < 0 else "SELL"
+            mark_price = float(pos["markPrice"])
+            _, qty = adjust_qty_price(sym, mark_price, abs(amt))
+
+            if qty > 0:
+                client.futures_create_order(
+                    symbol=sym, side=side, type="MARKET", quantity=qty, reduceOnly=True
+                )
+                log(f"{sym} LIQUIDATED")
+    except Exception as e:
+        log(f"liquidate_all error: {e}")
