@@ -51,7 +51,10 @@ def top20_candidates():
 
     # ✅ Sort dynamically by dollar volume (top 50), then by ROC (top 20)
     top50 = sorted(candidates, key=lambda x: x["dvol"], reverse=True)[:50]
-    return sorted(top50, key=lambda x: x["roc"], reverse=True)[:TOP_COINS]
+    top20 =  sorted(top50, key=lambda x: x["roc"], reverse=True)[:TOP_COINS]
+
+    log(f"Selected long symbols: {[c['symbol'] for c in top20]}")
+    return top20
 
 
 # === Close All ===

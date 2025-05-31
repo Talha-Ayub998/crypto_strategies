@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import (
     client, log, tg_send, fetch_klines,
-    crossed_below, btc_below_50ma,
+    crossed_below, btc_below_50ma, roc,
     adjust_qty_price, place_order, handle_exceptions,
     moving_average,  get_margin_ratio, liquidate_all, reduce_positions, 
 )
@@ -46,15 +46,16 @@ def bottom20_candidates():
             if not crossed_below(df["close"], ma10):
                 continue
 
-            candidates.append({"symbol": sym, "dvol": dvol})
+            r = roc(df["close"], 20).iloc[-1]
+            candidates.append({"symbol": sym, "dvol": dvol, "roc": r})
         except Exception as e:
             log(f"{sym} error: {e}")
 
-    # ✅ Sort by dollar volume, take top 20
-    top20 = sorted(candidates, key=lambda x: x["dvol"], reverse=True)[:TOP_COINS]
-    log(f"Selected short symbols: {[c['symbol'] for c in top20]}")
+    top50 = sorted(candidates, key=lambda x: x["dvol"], reverse=True)[:50]
+    bottom20 = sorted(top50, key=lambda x: x["roc"])[:TOP_COINS]
 
-    return top20
+    log(f"Selected short symbols: {[c['symbol'] for c in bottom20]}")
+    return bottom20
 
 
 # === Exit Logic ===
