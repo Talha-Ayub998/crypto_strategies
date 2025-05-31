@@ -17,8 +17,6 @@ TG_CHAT  = os.getenv("TELEGRAM_CHAT_ID")
 client = Client(API_KEY, API_SEC, testnet=True)
 client.FUTURES_URL = "https://testnet.binancefuture.com/fapi"
 
-
-
 #Constant
 FARID_EXCEPTION_CHANEL = os.getenv("EXCEPTION_CHANEL")
 
@@ -254,6 +252,7 @@ def btc_above_50ma():
     df = fetch_klines("BTCUSDT")
     if len(df) < 51:
         return False
+    
     df = df.iloc[:-1]
     ma =  moving_average(df.close, 50).iloc[-1]
     return df.close.iloc[-1] > ma
@@ -262,6 +261,7 @@ def btc_below_50ma():
     df = fetch_klines("BTCUSDT")
     if len(df) < 51:
         return False
+    
     df = df.iloc[:-1]
     ma =  moving_average(df.close, 50).iloc[-1]
     return df.close.iloc[-1] < ma
@@ -283,6 +283,7 @@ def place_order(symbol, usdt_alloc, side, summary, discount):
             summary.append(f"{symbol} ❌ qty=0")
             return None
 
+        set_leverage_1x(symbol)
         order = client.futures_create_order(
             symbol=symbol,
             side=side,
@@ -376,3 +377,56 @@ def liquidate_all():
                 log(f"{sym} LIQUIDATED")
     except Exception as e:
         log(f"liquidate_all error: {e}")
+
+@retry()
+def fetch_minute_klines(symbol, start_time, end_time):
+    """
+    Fetch 1-minute kline data from Binance Futures between start and end time.
+    """
+    try:
+        params = {
+            "symbol": symbol,
+            "interval": "1m",
+            "startTime": int(start_time.timestamp() * 1000),
+            "endTime": int(end_time.timestamp() * 1000),
+            "limit": 1000
+        }
+        r = requests.get(FAPI_BASE, params=params, timeout=10)
+        if r.status_code != 200:
+            log(f"Minute kline fetch failed {symbol}: {r.text}")
+            return pd.DataFrame()
+
+        df = pd.DataFrame(r.json(), columns=[
+            "open_time", "open", "high", "low", "close", "volume",
+            "close_time", "qav", "trades", "tbbav", "tbqav", "ignore"
+        ])
+        df["open_time"] = pd.to_datetime(df["open_time"], unit="ms")
+        df.set_index("open_time", inplace=True)
+        df = df[["open", "high", "low", "close", "volume"]].astype(float)
+        return df
+    except Exception as e:
+        log(f"fetch_minute_klines error {symbol}: {e}")
+        return pd.DataFrame()
+
+
+def intraday_vwap(df):
+    """
+    Calculate VWAP using (H+L+C)/3 * V / total V.
+    Assumes 1-min data with index as datetime.
+    """
+    try:
+        typical_price = (df["high"] + df["low"] + df["close"]) / 3
+        vwap = (typical_price * df["volume"]).cumsum() / df["volume"].cumsum()
+        return vwap.iloc[-1]  # Latest VWAP
+    except Exception as e:
+        log(f"VWAP calculation error: {e}")
+        return None
+
+
+def set_leverage_1x(symbol):
+    try:
+        client.futures_change_leverage(symbol=symbol, leverage=1)
+        log(f"Leverage set to 1x for {symbol}")
+    except Exception as e:
+        log(f"Failed to set leverage for {symbol}: {e}")
+

@@ -3,23 +3,21 @@ Binance USDT‑M Futures Top‑20 Long Strategy — Full Flowchart Implementatio
 """
 import sys
 import os
-import schedule, time, json
+import schedule, time
 
 # Add parent directory to sys.path so 'utils' can be imported
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import (
-    client, log, tg_send, fetch_klines, vwap, roc,
-    crossed_above, btc_above_50ma, symbol_info, adjust_qty_price, place_order,
-    handle_exceptions, moving_average, get_margin_ratio, liquidate_all, reduce_positions
+    client, log, tg_send, fetch_klines, roc,
+    crossed_above, btc_above_50ma, adjust_qty_price, place_order,
+    handle_exceptions, moving_average, get_margin_ratio, liquidate_all, reduce_positions,
 )
 
 # === Strategy Constants ===
 ALLOC_PCT        = 0.30
 TOP_COINS        = 20
-MAX_VOL_LIST     = 50
-VOL_LIMIT        = 10_000_000
+MAX_PER_COIN_PCT = 0.05
 VWAP_DISCOUNT    = 0.98
-CHECK_INTERVAL   = 60 * 30  # every 30 minutes
 
 # === Universe & Filtering ===
 def futures_universe():
@@ -36,50 +34,25 @@ def top20_candidates():
     for sym in symbols:
         try:
             df = fetch_klines(sym)
-            if df.empty or len(df) < 31:
+            if df.empty or len(df) < 21:
                 continue
 
             df = df.iloc[:-1]  # remove current day
-            dvol = (df.volume * df.close).rolling(20).mean().iloc[-1]
-            if dvol < VOL_LIMIT:
+            dvol = (df["close"] * df["volume"]).rolling(20).mean().iloc[-1]
+
+            ma20 = moving_average(df["close"], 20)
+            if not crossed_above(df["close"], ma20):
                 continue
 
-            ma20 = moving_average(df.close, 20)
-            if not crossed_above(df.close, ma20):
-                continue
-
-            r = roc(df.close, 20).iloc[-1]
+            r = roc(df["close"], 20).iloc[-1]
             candidates.append({"symbol": sym, "dvol": dvol, "roc": r})
         except Exception as e:
             log(f"{sym} error: {e}")
-    top50 = sorted(candidates, key=lambda x: x["dvol"], reverse=True)[:MAX_VOL_LIST]
+
+    # ✅ Sort dynamically by dollar volume (top 50), then by ROC (top 20)
+    top50 = sorted(candidates, key=lambda x: x["dvol"], reverse=True)[:50]
     return sorted(top50, key=lambda x: x["roc"], reverse=True)[:TOP_COINS]
 
-# === Entry ===
-def place_entry(symbol, usdt_alloc, summary):
-    try:
-        df = fetch_klines(symbol)
-        if df.empty:
-            summary.append(f"{symbol} ❌ No data")
-            return
-        
-        vw = vwap(df.iloc[-1:])
-        price = vw * VWAP_DISCOUNT
-        qty = usdt_alloc / price
-
-        price, qty = adjust_qty_price(symbol, price, qty)
-        if qty == 0:
-            summary.append(f"{symbol} ❌ qty=0")
-            return
-        
-        order = client.futures_create_order(
-            symbol=symbol, side="BUY", type="LIMIT",
-            timeInForce="GTC", quantity=qty, price=str(price)
-        )
-        summary.append(f"{symbol} | BUY | Qty: {qty} | Price: {price:.2f} | ID: {order['orderId']} | {order['status']}")
-    except Exception as e:
-        log(f"{symbol} entry error: {e}")
-        summary.append(f"{symbol} ❌ Error: {e}")
 
 # === Close All ===
 def close_all_longs():
@@ -122,10 +95,10 @@ def rebalance_longs():
             tg_send("No long candidates 💤")
             return
 
-        alloc_each = cap / len(top20)
+        alloc_each = min(cap / len(top20), usdt * MAX_PER_COIN_PCT)
         summary = []
         for c in top20:
-            place_order(c["symbol"], alloc_each, "BUY", summary, discount=0.98)
+            place_order(c["symbol"], alloc_each, "BUY", summary, discount=VWAP_DISCOUNT)
 
         tg_send("🟢 Long Orders Summary:\n" + "\n".join(summary))
 
@@ -176,8 +149,9 @@ def check_exit_conditions():
                         exit_list.append(f"{sym} closed: 20MA: {close_above_20ma}, In T20: {still_top20}, BTC>50: {btc_ok}")
             except Exception as e:
                 log(f"Exit check error {sym}: {e}")
+
         if exit_list:
-            tg_send("🚨 Exit Signals Triggered:\n" + "\n".join(exit_list))
+            tg_send("🚨 Exit Signals Long Triggered:\n" + "\n".join(exit_list))
     except Exception as e:
         log(f"check_exit_conditions error: {e}")
 
@@ -210,8 +184,8 @@ def manage_margin():
 def main():
     schedule.every().day.at("00:01").do(rebalance_longs)
     schedule.every().day.at("12:00").do(noon_fill_check)
-    schedule.every(CHECK_INTERVAL).seconds.do(check_exit_conditions)
-    # schedule.every(5).minutes.do(manage_margin)
+    schedule.every().day.at("23:59").do(check_exit_conditions) #adjust time if you want to run it slightly earlier
+    schedule.every(5).minutes.do(manage_margin)
     tg_send("✅ Long Strategy Bot Running")
     while True:
         schedule.run_pending()

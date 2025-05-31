@@ -4,23 +4,22 @@ Top‑20 SHORT Futures Strategy (Full Flowchart Implementation)
 import sys
 import os
 import schedule, time, json
+from datetime import datetime, timedelta
 
 # Add parent directory to sys.path so 'utils' can be imported
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import (
-    client, log, tg_send, fetch_klines, vwap, roc,
-    crossed_below, btc_below_50ma, btc_above_50ma,
-    symbol_info, adjust_qty_price, place_order, handle_exceptions,
-    moving_average,  get_margin_ratio, liquidate_all, reduce_positions
+    client, log, tg_send, fetch_klines,
+    crossed_below, btc_below_50ma,
+    adjust_qty_price, place_order, handle_exceptions,
+    moving_average,  get_margin_ratio, liquidate_all, reduce_positions, 
 )
 
 # === Constants from Flowchart ===
 ALLOC_PCT        = 0.30
 TOP_COINS        = 20
-MAX_VOL_LIST     = 50
-VOL_LIMIT        = 10_000_000
+MAX_PER_COIN_PCT = 0.05
 VWAP_DISCOUNT    = 1.02
-CHECK_INTERVAL   = 60 * 30  # every 30 mins for exit condition check
 
 # === Candidate Selection ===
 def futures_universe():
@@ -37,50 +36,26 @@ def bottom20_candidates():
     for sym in symbols:
         try:
             df = fetch_klines(sym)
-            if df.empty or len(df) < 31:
-                continue
-            df = df.iloc[:-1]
-            dvol = (df.volume * df.close).rolling(20).mean().iloc[-1]
-            if dvol < VOL_LIMIT:
+            if df.empty or len(df) < 21:
                 continue
 
-            ma10 = moving_average(df.close, 10)
-            if not crossed_below(df.close, ma10):
+            df = df.iloc[:-1]  # Remove current  day
+            dvol = (df["close"] * df["volume"]).rolling(20).mean().iloc[-1]
+
+            ma10 = moving_average(df["close"], 10)
+            if not crossed_below(df["close"], ma10):
                 continue
 
-            r = roc(df.close, 20).iloc[-1]
-            candidates.append({"symbol": sym, "dvol": dvol, "roc": r})
+            candidates.append({"symbol": sym, "dvol": dvol})
         except Exception as e:
             log(f"{sym} error: {e}")
-    top50 = sorted(candidates, key=lambda x: x["dvol"], reverse=True)[:MAX_VOL_LIST]
-    return sorted(top50, key=lambda x: x["roc"])[:TOP_COINS]
 
-# === Entry Placement ===
-def place_short(symbol, usdt_alloc, summary):
-    try:
-        df = fetch_klines(symbol)
-        if df.empty:
-            summary.append(f"{symbol} ❌ No data")
-            return None
-        vw = vwap(df.iloc[-1:])
-        price = vw * VWAP_DISCOUNT
-        qty = usdt_alloc / price
+    # ✅ Sort by dollar volume, take top 20
+    top20 = sorted(candidates, key=lambda x: x["dvol"], reverse=True)[:TOP_COINS]
+    log(f"Selected short symbols: {[c['symbol'] for c in top20]}")
 
-        price, qty = adjust_qty_price(symbol, price, qty)
-        if qty == 0:
-            summary.append(f"{symbol} ❌ qty=0")
-            return None
-        
-        order = client.futures_create_order(
-            symbol=symbol, side="SELL", type="LIMIT",
-            timeInForce="GTC", quantity=qty, price=str(price)
-        )
-        summary.append(f"{symbol} | SELL | Qty: {qty} | Price: {price:.4f} | OrderID: {order['orderId']} | {order['status']}")
-        return order
-    except Exception as e:
-        log(f"{symbol} order failed: {e}")
-        summary.append(f"{symbol} ❌ Error: {e}")
-        return None
+    return top20
+
 
 # === Exit Logic ===
 def close_all_shorts():
@@ -124,10 +99,10 @@ def rebalance_shorts():
             tg_send("No short candidates 💤")
             return
 
-        alloc_each = cap / len(bottom20)
+        alloc_each = min(cap / len(bottom20), usdt * MAX_PER_COIN_PCT)
         summary = []
         for c in bottom20:
-            place_order(c["symbol"], alloc_each, "SELL", summary, discount=1.02)
+            place_order(c["symbol"], alloc_each, "SELL", summary, discount=VWAP_DISCOUNT)
 
         tg_send("🔻 Short Orders Summary:\n" + "\n".join(summary))
 
@@ -175,10 +150,11 @@ def check_exit_conditions():
                     if qty > 0:
                         client.futures_create_order(symbol=sym, side="BUY", type="MARKET", quantity=qty, reduceOnly=True)
                         exit_list.append(f"{sym} closed: 5MA: {close_below_5ma}, In B20: {still_bottom20}, BTC<50: {btc_below}")
+                            
             except Exception as e:
                 log(f"Exit check error {sym}: {e}")
         if exit_list:
-            tg_send("🚨 Exit Signals Triggered:\n" + "\n".join(exit_list))
+            tg_send("🚨 Exit Signals Short Triggered:\n" + "\n".join(exit_list))
     except Exception as e:
         log(f"check_exit_conditions error: {e}")
 
@@ -210,8 +186,8 @@ def manage_margin():
 def main():
     schedule.every().day.at("00:01").do(rebalance_shorts)
     schedule.every().day.at("12:00").do(noon_fill_check)
-    schedule.every(CHECK_INTERVAL).seconds.do(check_exit_conditions)
-    # schedule.every(5).minutes.do(manage_margin)
+    schedule.every().day.at("23:59").do(check_exit_conditions) #adjust time if you want to run it slightly earlier
+    schedule.every(5).minutes.do(manage_margin)
     tg_send("✅ Short Strategy Bot Running")
     while True:
         schedule.run_pending()
