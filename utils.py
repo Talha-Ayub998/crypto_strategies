@@ -20,6 +20,9 @@ client.FUTURES_URL = "https://testnet.binancefuture.com/fapi"
 #Constant
 FARID_EXCEPTION_CHANEL = os.getenv("EXCEPTION_CHANEL")
 
+DRY_RUN = os.getenv("DRY_RUN", "False").lower() == "true"
+
+
 def handle_exceptions(func):
     # Decorator to handle all exceptions
     def wrapper(*args, **kwargs):
@@ -270,13 +273,20 @@ def btc_below_50ma():
 
 def place_order(symbol, usdt_alloc, side, summary, discount):
     try:
-        df = fetch_klines(symbol)
-        if df.empty:
-            summary.append(f"{symbol} ❌ No data")
+        start_time = datetime.utcnow().replace(hour=0, minute=1, second=0, microsecond=0)
+        end_time = datetime.utcnow()
+        min_df = fetch_minute_klines(symbol, start_time, end_time)
+
+        if min_df.empty or len(min_df) < 5:
+            summary.append(f"{symbol} ❌ Not enough intraday data for VWAP")
             return None
 
-        vw = vwap(df.iloc[-1:])
-        price = vw * discount
+        # Calculate intraday VWAP
+        price = intraday_vwap(min_df)
+        if not price or price <= 0:
+            price = min_df["open"].iloc[0]
+            log(f"{symbol} VWAP fallback: using first open price {price}")
+
         qty = usdt_alloc / price
         price, qty = adjust_qty_price(symbol, price, qty)
         if qty == 0:
@@ -284,14 +294,19 @@ def place_order(symbol, usdt_alloc, side, summary, discount):
             return None
 
         set_leverage_1x(symbol)
-        order = client.futures_create_order(
-            symbol=symbol,
-            side=side,
-            type="LIMIT",
-            timeInForce="GTC",
-            quantity=qty,
-            price=str(price)
-        )
+        if DRY_RUN:
+            log(f"[DRY-RUN] {symbol} | {side} | Qty: {qty} | Price: {price:.4f}")
+            summary.append(f"[DRY-RUN] {symbol} | {side} | Qty: {qty} | Price: {price:.4f}")
+            return None
+        else:
+            order = client.futures_create_order(
+                symbol=symbol,
+                side=side,
+                type="LIMIT",
+                timeInForce="GTC",
+                quantity=qty,
+                price=str(price)
+            )
 
         summary.append(
             f"{symbol} | {side} | Qty: {qty} | Price: {price:.4f} | OrderID: {order['orderId']} | {order.get('status', '-')}"
@@ -430,3 +445,44 @@ def set_leverage_1x(symbol):
     except Exception as e:
         log(f"Failed to set leverage for {symbol}: {e}")
 
+
+
+@handle_exceptions
+def manage_margin():
+    try:
+        ratio = get_margin_ratio()
+        prefix = "[DRY-RUN] " if DRY_RUN else ""
+        log(f"⚠️ Margin Ratio: {ratio:.2f}%")
+
+        if ratio < 5:
+            tg_send(f"{prefix}🔻 Margin < 5% — LIQUIDATE ALL POSITIONS ⚠️")
+            if not DRY_RUN:
+                liquidate_all()
+            else:
+                log(f"{prefix}Skipped liquidation due to DRY_RUN mode")
+
+        elif 5 <= ratio < 10:
+            tg_send(f"{prefix}🔸 Margin 5–10% — Sell/buy to cover 50% of portfolio")
+            if not DRY_RUN:
+                reduce_positions(0.50)
+            else:
+                log(f"{prefix}Skipped reduce 50% due to DRY_RUN mode")
+
+        elif 10 <= ratio < 20:
+            tg_send(f"{prefix}🔸 Margin 10–20% — Sell/buy to cover 30% of portfolio")
+            if not DRY_RUN:
+                reduce_positions(0.30)
+            else:
+                log(f"{prefix}Skipped reduce 30% due to DRY_RUN mode")
+
+        elif 20 <= ratio < 30:
+            tg_send(f"{prefix}🔸 Margin 20–30% — Sell/buy to cover 30% of portfolio")
+            if not DRY_RUN:
+                reduce_positions(0.30)
+            else:
+                log(f"{prefix}Skipped reduce 30% due to DRY_RUN mode")
+        else:
+            log("✅ Margin healthy, no action required")
+
+    except Exception as e:
+        log(f"manage_margin error: {e}")

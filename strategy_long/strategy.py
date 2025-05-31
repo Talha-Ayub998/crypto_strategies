@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import (
     client, log, tg_send, fetch_klines, roc,
     crossed_above, btc_above_50ma, adjust_qty_price, place_order,
-    handle_exceptions, moving_average, get_margin_ratio, liquidate_all, reduce_positions,
+    handle_exceptions, moving_average, get_margin_ratio, manage_margin, DRY_RUN
 )
 
 # === Strategy Constants ===
@@ -102,8 +102,12 @@ def rebalance_longs():
         summary = []
         for c in top20:
             place_order(c["symbol"], alloc_each, "BUY", summary, discount=VWAP_DISCOUNT)
+            
+        ratio = get_margin_ratio()
+        prefix = "[DRY-RUN] " if DRY_RUN else ""
+        header = f"{prefix}🟢 Top20 LONG Strategy Entry\nMargin Ratio: {ratio:.2f}%\n"
 
-        tg_send("🟢 Long Orders Summary:\n" + "\n".join(summary))
+        tg_send(header + "\n".join(summary))
 
     except Exception as e:
         log(f"rebalance_longs error: {e}")
@@ -148,40 +152,24 @@ def check_exit_conditions():
 
                     _, qty = adjust_qty_price(sym, price, amt)
                     if qty > 0:
-                        client.futures_create_order(symbol=sym, side="SELL", type="MARKET", quantity=qty, reduceOnly=True)
-                        exit_list.append(f"{sym} closed: 20MA: {close_above_20ma}, In T20: {still_top20}, BTC>50: {btc_ok}")
+                        if DRY_RUN:
+                            log(f"[DRY-RUN] Skipping exit order for {sym} | SELL | Qty: {qty}")
+                            exit_list.append(f"[DRY-RUN] {sym} would be closed: 20MA: {close_above_20ma}, In T20: {still_top20}, BTC>50: {btc_ok}")
+                        else:
+                            client.futures_create_order(symbol=sym, side="SELL", type="MARKET", quantity=qty, reduceOnly=True)
+                            exit_list.append(f"{sym} closed: 20MA: {close_above_20ma}, In T20: {still_top20}, BTC>50: {btc_ok}")
+
             except Exception as e:
                 log(f"Exit check error {sym}: {e}")
 
         if exit_list:
-            tg_send("🚨 Exit Signals Long Triggered:\n" + "\n".join(exit_list))
+            ratio = get_margin_ratio()
+            prefix = "[DRY-RUN] " if DRY_RUN else ""
+            tg_send(f"{prefix}🚨 Exit Signals [LONG/SHORT] Triggered:\nMargin Ratio: {ratio:.2f}%\n" + "\n".join(exit_list))
+
+
     except Exception as e:
         log(f"check_exit_conditions error: {e}")
-
-@handle_exceptions
-def manage_margin():
-    try:
-        ratio = get_margin_ratio()
-        log(f"⚠️ Margin Ratio: {ratio:.2f}%")
-
-        if ratio < 5:
-            tg_send("🔻 Margin < 5% — LIQUIDATE ALL POSITIONS ⚠️")
-            liquidate_all()
-        elif 5 <= ratio < 10:
-            tg_send("🔸 Margin 5–10% — Sell/buy to cover 50% of portfolio")
-            reduce_positions(0.50)
-        elif 10 <= ratio < 20:
-            tg_send("🔸 Margin 10–20% — Sell/buy to cover 30% of portfolio")
-            reduce_positions(0.30)
-        elif 20 <= ratio < 30:
-            tg_send("🔸 Margin 20–30% — Sell/buy to cover 30% of portfolio")
-            reduce_positions(0.30)
-        else:
-            pass  # Healthy margin, no action needed
-
-    except Exception as e:
-        log(f"manage_margin error: {e}")
-
 
 # === Scheduler ===
 def main():
