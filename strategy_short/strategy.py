@@ -46,15 +46,14 @@ def bottom20_candidates():
             if not crossed_below(df["close"], ma10):
                 continue
 
-            r = roc(df["close"], 20).iloc[-1]
-            candidates.append({"symbol": sym, "dvol": dvol, "roc": r})
+            candidates.append({"symbol": sym, "dvol": dvol})
         except Exception as e:
             log(f"{sym} error: {e}")
 
-    top50 = sorted(candidates, key=lambda x: x["dvol"], reverse=True)[:50]
-    bottom20 = sorted(top50, key=lambda x: x["roc"])[:TOP_COINS]
-
+    # ✅ Sort by dollar volume, take top 20
+    bottom20 = sorted(candidates, key=lambda x: x["dvol"], reverse=True)[:TOP_COINS]
     log(f"Selected short symbols: {[c['symbol'] for c in bottom20]}")
+
     return bottom20
 
 
