@@ -4,6 +4,7 @@ Binance USDT‑M Futures Top‑20 Long Strategy — Full Flowchart Implementatio
 import sys
 import os
 import schedule, time
+import json
 
 # Add parent directory to sys.path so 'utils' can be imported
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -98,11 +99,17 @@ def rebalance_longs():
             tg_send("No long candidates 💤")
             return
 
+        # ✅ LOCK per-coin allocation
         alloc_each = min(cap / len(top20), usdt * MAX_PER_COIN_PCT)
+        alloc_map = {c["symbol"]: alloc_each for c in top20}
+
+        # ✅ Save allocation map for reuse
+        with open("alloc_map.json", "w") as f:
+            json.dump(alloc_map, f)
+
         summary = []
         for c in top20:
-            place_order(c["symbol"], alloc_each, "BUY", summary, discount=VWAP_DISCOUNT)
-            
+            place_order(c["symbol"], alloc_map[c["symbol"]], "BUY", summary)
         ratio = get_margin_ratio()
         prefix = "[DRY-RUN] " if DRY_RUN else ""
         header = f"{prefix}🟢 Top20 LONG Strategy Entry\nMargin Ratio: {ratio:.2f}%\n"
@@ -117,15 +124,9 @@ def rebalance_longs():
 @handle_exceptions
 def noon_fill_check():
     try:
-        open_orders = client.futures_get_open_orders()
-        for o in open_orders:
-            try:
-                client.futures_cancel_order(symbol=o["symbol"], orderId=o["orderId"])
-                remaining = float(o["origQty"]) - float(o["executedQty"])
-                if remaining > 0:
-                    client.futures_create_order(symbol=o["symbol"], side="BUY", type="MARKET", quantity=remaining)
-            except Exception as e:
-                log(f"Noon fallback error {o['symbol']}: {e}")
+        # ✅ Do nothing to preserve capital allocation
+        log("⏳ Skipping fallback fill — preserving original VWAP limit orders.")
+        tg_send("⏳ Noon check: Skipped fallback fill to preserve fixed allocations and risk control.")
     except Exception as e:
         log(f"noon_fill_check error: {e}")
 

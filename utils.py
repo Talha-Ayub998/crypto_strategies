@@ -271,7 +271,7 @@ def btc_below_50ma():
 
 # === Place an order ==========================================================
 
-def place_order(symbol, usdt_alloc, side, summary, discount):
+def place_order(symbol, usdt_alloc, side, summary):
     try:
         start_time = datetime.utcnow().replace(hour=0, minute=1, second=0, microsecond=0)
         end_time = datetime.utcnow()
