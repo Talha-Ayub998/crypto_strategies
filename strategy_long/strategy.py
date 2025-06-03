@@ -9,16 +9,25 @@ import json
 # Add parent directory to sys.path so 'utils' can be imported
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import (
-    client, log, tg_send, fetch_klines, roc,
-    crossed_above, btc_above_50ma, adjust_qty_price, place_order,
-    handle_exceptions, moving_average, get_margin_ratio, manage_margin, DRY_RUN
+    client,
+    log,
+    tg_send,
+    fetch_klines,
+    roc,
+    crossed_above,
+    btc_above_50ma,
+    adjust_qty_price,
+    place_order,
+    handle_exceptions,
+    moving_average,
+    get_margin_ratio,
+    manage_margin,
+    DRY_RUN,
+    MAX_PER_COIN_PCT,
+    TOP_COINS,
+    ALLOC_PCT
 )
 
-# === Strategy Constants ===
-ALLOC_PCT        = 0.30
-TOP_COINS        = 20
-MAX_PER_COIN_PCT = 0.05
-VWAP_DISCOUNT    = 0.98
 
 # === Universe & Filtering ===
 def futures_universe():
@@ -109,7 +118,11 @@ def rebalance_longs():
 
         summary = []
         for c in top20:
-            place_order(c["symbol"], alloc_map[c["symbol"]], "BUY", summary)
+            symbol = c["symbol"]
+            if isinstance(alloc_map.get(symbol), str) and alloc_map[symbol] == "spent":
+                log(f"{symbol} skipped — already spent allocation")
+                continue
+            place_order(symbol, alloc_map[symbol], "BUY", summary, alloc_map_path="alloc_map_long.json")
         ratio = get_margin_ratio()
         prefix = "[DRY-RUN] " if DRY_RUN else ""
         header = f"{prefix}🟢 Top20 LONG Strategy Entry\nMargin Ratio: {ratio:.2f}%\n"

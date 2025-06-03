@@ -9,17 +9,23 @@ from datetime import datetime, timedelta
 # Add parent directory to sys.path so 'utils' can be imported
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import (
-    client, log, tg_send, fetch_klines,
-    crossed_below, btc_below_50ma, roc,
-    adjust_qty_price, place_order, handle_exceptions,
-    moving_average,  get_margin_ratio, manage_margin, DRY_RUN
+    client,
+    log,
+    tg_send,
+    fetch_klines,
+    crossed_below,
+    btc_below_50ma,
+    adjust_qty_price,
+    place_order,
+    handle_exceptions,
+    moving_average,
+    get_margin_ratio,
+    manage_margin,
+    DRY_RUN,
+    MAX_PER_COIN_PCT,
+    TOP_COINS,
+    ALLOC_PCT
 )
-
-# === Constants from Flowchart ===
-ALLOC_PCT        = 0.30
-TOP_COINS        = 20
-MAX_PER_COIN_PCT = 0.05
-VWAP_DISCOUNT    = 1.02
 
 # === Candidate Selection ===
 def futures_universe():
@@ -39,23 +45,19 @@ def bottom20_candidates():
             if df.empty or len(df) < 21:
                 continue
 
-            df = df.iloc[:-1]  # Remove current  day
+            df = df.iloc[:-1]  # remove current day
             dvol = (df["close"] * df["volume"]).rolling(20).mean().iloc[-1]
-
-            ma10 = moving_average(df["close"], 10)
-            if not crossed_below(df["close"], ma10):
-                continue
 
             candidates.append({"symbol": sym, "dvol": dvol})
         except Exception as e:
             log(f"{sym} error: {e}")
 
-    # ✅ Sort by dollar volume, take top 20
-    bottom20 = sorted(candidates, key=lambda x: x["dvol"], reverse=True)[:TOP_COINS]
+    # ✅ Sort by dollar volume (top 50), then pick bottom 20
+    top50 = sorted(candidates, key=lambda x: x["dvol"], reverse=True)[:50]
+    bottom20 = sorted(top50, key=lambda x: x["dvol"])[:TOP_COINS]
+
     log(f"Selected short symbols: {[c['symbol'] for c in bottom20]}")
-
     return bottom20
-
 
 # === Exit Logic ===
 def close_all_shorts():
@@ -89,7 +91,7 @@ def rebalance_shorts():
 
         balance = client.futures_account_balance()
         usdt = sum(float(a["balance"]) for a in balance if a["asset"] == "USDT")
-        cap = usdt * ALLOC_PCT
+        cap = usdt * ALLOC_PCT  # 30% total allocation
         if cap <= 0:
             tg_send("No USDT balance 😐")
             return
@@ -99,17 +101,18 @@ def rebalance_shorts():
             tg_send("No short candidates 💤")
             return
 
-        alloc_each = min(cap / len(bottom20), usdt * MAX_PER_COIN_PCT)
+        # 🔧 FIXED: Enforce exact 5% allocation per coin
+        alloc_each = usdt * MAX_PER_COIN_PCT
+
         summary = []
         for c in bottom20:
-            place_order(c["symbol"], alloc_each, "SELL", summary, discount=VWAP_DISCOUNT)
+            place_order(c["symbol"], alloc_each, "SELL", summary)
 
         ratio = get_margin_ratio()
         prefix = "[DRY-RUN] " if DRY_RUN else ""
         header = f"{prefix}🔻 Top20 SHORT Strategy Entry\nMargin Ratio: {ratio:.2f}%\n"
 
         tg_send(header + "\n".join(summary))
-
 
     except Exception as e:
         log(f"rebalance_shorts error: {e}")

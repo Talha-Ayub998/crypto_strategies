@@ -17,6 +17,11 @@ TG_CHAT  = os.getenv("TELEGRAM_CHAT_ID")
 client = Client(API_KEY, API_SEC, testnet=True)
 client.FUTURES_URL = "https://testnet.binancefuture.com/fapi"
 
+# === Constants from Flowchart ===
+ALLOC_PCT        = 0.30
+TOP_COINS        = 20
+MAX_PER_COIN_PCT = 0.05
+
 #Constant
 FARID_EXCEPTION_CHANEL = os.getenv("EXCEPTION_CHANEL")
 
@@ -271,50 +276,75 @@ def btc_below_50ma():
 
 # === Place an order ==========================================================
 
-def place_order(symbol, usdt_alloc, side, summary):
+def place_order(symbol, usdt_alloc, side, summary, alloc_map_path=None):
     try:
         start_time = datetime.utcnow().replace(hour=0, minute=1, second=0, microsecond=0)
         end_time = datetime.utcnow()
         min_df = fetch_minute_klines(symbol, start_time, end_time)
 
         if min_df.empty or len(min_df) < 5:
-            summary.append(f"{symbol} ❌ Not enough intraday data for VWAP")
-            return None
-
-        # Calculate intraday VWAP
-        price = intraday_vwap(min_df)
-        if not price or price <= 0:
-            price = min_df["open"].iloc[0]
-            log(f"{symbol} VWAP fallback: using first open price {price}")
-
-        qty = usdt_alloc / price
-        price, qty = adjust_qty_price(symbol, price, qty)
-        if qty == 0:
-            summary.append(f"{symbol} ❌ qty=0")
+            msg = f"{symbol} ❌ Not enough intraday data for VWAP"
+            log(msg)
+            tg_send(msg)
+            summary.append(msg)
             return None
 
         set_leverage_1x(symbol)
-        if DRY_RUN:
-            log(f"[DRY-RUN] {symbol} | {side} | Qty: {qty} | Price: {price:.4f}")
-            summary.append(f"[DRY-RUN] {symbol} | {side} | Qty: {qty} | Price: {price:.4f}")
-            return None
-        else:
-            order = client.futures_create_order(
-                symbol=symbol,
-                side=side,
-                type="LIMIT",
-                timeInForce="GTC",
-                quantity=qty,
-                price=str(price)
-            )
 
-        summary.append(
-            f"{symbol} | {side} | Qty: {qty} | Price: {price:.4f} | OrderID: {order['orderId']} | {order.get('status', '-')}"
+        vwap_price = intraday_vwap(min_df)
+        open_price = min_df["open"].iloc[0]
+        entry_price = max(vwap_price, open_price) if vwap_price and vwap_price > 0 else open_price
+        log(f"{symbol} VWAP: {vwap_price:.4f}, Open: {open_price:.4f}, Entry: {entry_price:.4f}")
+
+        qty = usdt_alloc / entry_price
+        entry_price, qty = adjust_qty_price(symbol, entry_price, qty)
+
+        if qty == 0:
+            msg = f"{symbol} ❌ qty=0"
+            log(msg)
+            tg_send(msg)
+            summary.append(msg)
+            return None
+
+        msg = f"{'[DRY-RUN]' if DRY_RUN else ''} {symbol} | {side} | Qty: {qty:.4f} | Alloc: ${usdt_alloc:.2f} | Entry: {entry_price:.4f}"
+        log(msg)
+        summary.append(msg)  # 👈 Just collect here (no immediate tg_send)
+
+        if DRY_RUN:
+            return None
+
+        order = client.futures_create_order(
+            symbol=symbol,
+            side=side,
+            type="LIMIT",
+            timeInForce="GTC",
+            quantity=qty,
+            price=str(entry_price)
         )
+
+        msg = f"{symbol} ✅ Order Placed | OrderID: {order['orderId']} | Status: {order.get('status', '-')}"
+        log(msg)
+        summary.append(msg)  # 👈 Append to summary instead of sending immediately
+
+        # 🔒 Optional: Mark allocation as spent
+        if alloc_map_path:
+            try:
+                with open(alloc_map_path, "r+") as f:
+                    alloc_map = json.load(f)
+                    alloc_map[symbol] = "spent"
+                    f.seek(0)
+                    json.dump(alloc_map, f)
+                    f.truncate()
+            except Exception as e:
+                log(f"{symbol} ⚠️ Failed to mark as spent in {alloc_map_path}: {e}")
+
         return order
+
     except Exception as e:
-        log(f"{symbol} order failed: {e}")
-        summary.append(f"{symbol} ❌ Error: {e}")
+        msg = f"{symbol} ❌ Order failed: {e}"
+        log(msg)
+        tg_send(msg)  # ✅ Still notify on failure
+        summary.append(msg)
         return None
 
 def moving_average(series, period=20):
