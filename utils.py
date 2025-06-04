@@ -25,7 +25,7 @@ MAX_PER_COIN_PCT = 0.05
 #Constant
 FARID_EXCEPTION_CHANEL = os.getenv("EXCEPTION_CHANEL")
 
-DRY_RUN = os.getenv("DRY_RUN", "False").lower() == "true"
+DRY_RUN = os.getenv("DRY_RUN", "True").lower() == "true"
 
 
 def handle_exceptions(func):
