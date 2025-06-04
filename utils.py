@@ -293,7 +293,10 @@ def place_order(symbol, usdt_alloc, side, summary, alloc_map_path=None):
 
         vwap_price = intraday_vwap(min_df)
         open_price = min_df["open"].iloc[0]
-        entry_price = max(vwap_price, open_price) if vwap_price and vwap_price > 0 else open_price
+        if side == "BUY":
+            entry_price = min(vwap_price, open_price) if vwap_price and vwap_price > 0 else open_price
+        else:  # For shorts
+            entry_price = max(vwap_price, open_price) if vwap_price and vwap_price > 0 else open_price
         log(f"{symbol} VWAP: {vwap_price:.4f}, Open: {open_price:.4f}, Entry: {entry_price:.4f}")
 
         qty = usdt_alloc / entry_price
@@ -308,7 +311,9 @@ def place_order(symbol, usdt_alloc, side, summary, alloc_map_path=None):
 
         msg = f"{'[DRY-RUN]' if DRY_RUN else ''} {symbol} | {side} | Qty: {qty:.4f} | Alloc: ${usdt_alloc:.2f} | Entry: {entry_price:.4f}"
         log(msg)
-        summary.append(msg)  # 👈 Just collect here (no immediate tg_send)
+        summary.append(msg)
+        tg_send(msg)  # ✅ Send live alert
+
 
         if DRY_RUN:
             return None
@@ -324,7 +329,9 @@ def place_order(symbol, usdt_alloc, side, summary, alloc_map_path=None):
 
         msg = f"{symbol} ✅ Order Placed | OrderID: {order['orderId']} | Status: {order.get('status', '-')}"
         log(msg)
-        summary.append(msg)  # 👈 Append to summary instead of sending immediately
+        summary.append(msg)
+        tg_send(msg)  # ✅ Send live alert
+
 
         # 🔒 Optional: Mark allocation as spent
         if alloc_map_path:

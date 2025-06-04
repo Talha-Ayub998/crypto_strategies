@@ -112,8 +112,7 @@ def rebalance_longs():
         alloc_each = min(cap / len(top20), usdt * MAX_PER_COIN_PCT)
         alloc_map = {c["symbol"]: alloc_each for c in top20}
 
-        # ✅ Save allocation map for reuse
-        with open("alloc_map.json", "w") as f:
+        with open("alloc_map_long.json", "w") as f:
             json.dump(alloc_map, f)
 
         summary = []
@@ -123,11 +122,26 @@ def rebalance_longs():
                 log(f"{symbol} skipped — already spent allocation")
                 continue
             place_order(symbol, alloc_map[symbol], "BUY", summary, alloc_map_path="alloc_map_long.json")
+
         ratio = get_margin_ratio()
         prefix = "[DRY-RUN] " if DRY_RUN else ""
         header = f"{prefix}🟢 Top20 LONG Strategy Entry\nMargin Ratio: {ratio:.2f}%\n"
 
-        tg_send(header + "\n".join(summary))
+        success = [m for m in summary if "✅" in m]
+        fail = [m for m in summary if "❌" in m]
+        skipped = [m for m in summary if "skipped" in m]
+
+        msg = f"{prefix}📊 Daily Summary\nMargin Ratio: {ratio:.2f}%\n\n"
+
+        if success:
+            msg += "✅ Success:\n" + "\n".join(success) + "\n\n"
+        if fail:
+            msg += "❌ Failed:\n" + "\n".join(fail) + "\n\n"
+        if skipped:
+            msg += "⏩ Skipped:\n" + "\n".join(skipped)
+
+        tg_send(msg.strip())
+
 
     except Exception as e:
         log(f"rebalance_longs error: {e}")
