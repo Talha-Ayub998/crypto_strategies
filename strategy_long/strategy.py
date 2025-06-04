@@ -152,8 +152,9 @@ def rebalance_longs():
 def noon_fill_check():
     try:
         # ✅ Do nothing to preserve capital allocation
-        log("⏳ Skipping fallback fill — preserving original VWAP limit orders.")
-        tg_send("⏳ Noon check: Skipped fallback fill to preserve fixed allocations and risk control.")
+        prefix = "[DRY-RUN] " if DRY_RUN else ""
+        log(f"{prefix}⏳ Skipping fallback fill — preserving original VWAP limit orders.")
+        tg_send(f"{prefix}⏳ Noon check: Skipped fallback fill to preserve fixed allocations and risk control.")
     except Exception as e:
         log(f"noon_fill_check error: {e}")
 
@@ -180,12 +181,16 @@ def check_exit_conditions():
 
                     _, qty = adjust_qty_price(sym, price, amt)
                     if qty > 0:
+                        prefix = "[DRY-RUN] " if DRY_RUN else ""
                         if DRY_RUN:
-                            log(f"[DRY-RUN] Skipping exit order for {sym} | SELL | Qty: {qty}")
-                            exit_list.append(f"[DRY-RUN] {sym} would be closed: 20MA: {close_above_20ma}, In T20: {still_top20}, BTC>50: {btc_ok}")
+                            log(f"{prefix}Skipping exit order for {sym} | SELL | Qty: {qty}")
+                            exit_msg = f"{prefix}{sym} would be closed: 20MA: {close_above_20ma}, In T20: {still_top20}, BTC>50: {btc_ok}"
                         else:
                             client.futures_create_order(symbol=sym, side="SELL", type="MARKET", quantity=qty, reduceOnly=True)
-                            exit_list.append(f"{sym} closed: 20MA: {close_above_20ma}, In T20: {still_top20}, BTC>50: {btc_ok}")
+                            exit_msg = f"{prefix}{sym} EXIT | Side: SELL | Qty: {qty:.4f} | Price: {price:.4f}"
+
+                        exit_list.append(exit_msg)
+                        tg_send(exit_msg)
 
             except Exception as e:
                 log(f"Exit check error {sym}: {e}")
@@ -193,8 +198,7 @@ def check_exit_conditions():
         if exit_list:
             ratio = get_margin_ratio()
             prefix = "[DRY-RUN] " if DRY_RUN else ""
-            tg_send(f"{prefix}🚨 Exit Signals [LONG/SHORT] Triggered:\nMargin Ratio: {ratio:.2f}%\n" + "\n".join(exit_list))
-
+            tg_send(f"{prefix}🚨 Exit Signals Triggered\nMargin Ratio: {ratio:.2f}%\n" + "\n".join(exit_list))
 
     except Exception as e:
         log(f"check_exit_conditions error: {e}")

@@ -283,10 +283,22 @@ def place_order(symbol, usdt_alloc, side, summary, alloc_map_path=None):
         min_df = fetch_minute_klines(symbol, start_time, end_time)
 
         if min_df.empty or len(min_df) < 5:
-            msg = f"{symbol} ❌ Not enough intraday data for VWAP"
+            msg = f"{symbol} ❌ Not enough intraday data for VWAP — Skipping"
             log(msg)
-            tg_send(msg)
+            tg_send(f"{'[DRY-RUN] ' if DRY_RUN else ''}{msg}")  # 👈 Add Telegram alert
             summary.append(msg)
+            if alloc_map_path:
+                try:
+                    with open(alloc_map_path, "r+") as f:
+                        alloc_map = json.load(f)
+                        alloc_map[symbol] = "spent"
+                        f.seek(0)
+                        json.dump(alloc_map, f)
+                        f.truncate()
+                except Exception as e:
+                    error_msg = f"{symbol} ⚠️ Failed to mark as spent: {e}"
+                    log(error_msg)
+                    tg_send(f"{'[DRY-RUN] ' if DRY_RUN else ''}{error_msg}")
             return None
 
         set_leverage_1x(symbol)
@@ -307,6 +319,19 @@ def place_order(symbol, usdt_alloc, side, summary, alloc_map_path=None):
             log(msg)
             tg_send(msg)
             summary.append(msg)
+
+            # 🔒 Mark allocation as spent even if qty=0
+            if alloc_map_path:
+                try:
+                    with open(alloc_map_path, "r+") as f:
+                        alloc_map = json.load(f)
+                        alloc_map[symbol] = "spent"
+                        f.seek(0)
+                        json.dump(alloc_map, f)
+                        f.truncate()
+                except Exception as e:
+                    log(f"{symbol} ⚠️ Failed to mark as spent in {alloc_map_path}: {e}")
+            
             return None
 
         msg = f"{'[DRY-RUN]' if DRY_RUN else ''} {symbol} | {side} | Qty: {qty:.4f} | Alloc: ${usdt_alloc:.2f} | Entry: {entry_price:.4f}"
@@ -350,8 +375,21 @@ def place_order(symbol, usdt_alloc, side, summary, alloc_map_path=None):
     except Exception as e:
         msg = f"{symbol} ❌ Order failed: {e}"
         log(msg)
-        tg_send(msg)  # ✅ Still notify on failure
+        tg_send(f"{'[DRY-RUN] ' if DRY_RUN else ''}{msg}")  # 👈 Add Telegram alert
         summary.append(msg)
+        if alloc_map_path:
+            try:
+                with open(alloc_map_path, "r+") as f:
+                    alloc_map = json.load(f)
+                    alloc_map[symbol] = "spent"
+                    f.seek(0)
+                    json.dump(alloc_map, f)
+                    f.truncate()
+            except Exception as e:
+                error_msg = f"{symbol} ⚠️ Failed to mark as spent: {e}"
+                log(error_msg)
+                tg_send(f"{'[DRY-RUN] ' if DRY_RUN else ''}{error_msg}")
+
         return None
 
 def moving_average(series, period=20):
@@ -423,10 +461,12 @@ def liquidate_all():
             _, qty = adjust_qty_price(sym, mark_price, abs(amt))
 
             if qty > 0:
+                prefix = "[DRY-RUN] " if DRY_RUN else ""
                 client.futures_create_order(
                     symbol=sym, side=side, type="MARKET", quantity=qty, reduceOnly=True
                 )
                 log(f"{sym} LIQUIDATED")
+                tg_send(f"{prefix}{sym} LIQUIDATED at market due to margin rule.")
     except Exception as e:
         log(f"liquidate_all error: {e}")
 

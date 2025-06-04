@@ -76,7 +76,8 @@ def close_all_shorts():
                 log(f"Closed short {sym}")
             except Exception as e:
                 log(f"Error closing {sym}: {e}")
-        tg_send("All short positions closed ✅")
+        prefix = "[DRY-RUN] " if DRY_RUN else ""
+        tg_send(f"{prefix}All short positions closed ✅")
     except Exception as e:
         log(f"close_all_shorts error: {e}")
         tg_send(f"Short close error: {e}")
@@ -101,22 +102,32 @@ def rebalance_shorts():
             tg_send("No short candidates 💤")
             return
 
-        # 🔧 FIXED: Enforce exact 5% allocation per coin
+        # 🔒 LOCK per-coin allocation
         alloc_each = usdt * MAX_PER_COIN_PCT
+        alloc_map = {c["symbol"]: alloc_each for c in bottom20}
+
+        with open("alloc_map_short.json", "w") as f:
+            json.dump(alloc_map, f)
 
         summary = []
         for c in bottom20:
-            place_order(c["symbol"], alloc_each, "SELL", summary)
+            symbol = c["symbol"]
+            # ⏩ Skip already spent allocations
+            if isinstance(alloc_map.get(symbol), str) and alloc_map[symbol] == "spent":
+                log(f"{symbol} skipped — already spent allocation")
+                summary.append(f"{symbol} ⏩ skipped — already spent allocation")
+                continue
+
+            place_order(symbol, alloc_map[symbol], "SELL", summary, alloc_map_path="alloc_map_short.json")
 
         ratio = get_margin_ratio()
         prefix = "[DRY-RUN] " if DRY_RUN else ""
-        header = f"{prefix}🔻 Top20 SHORT Strategy Entry\nMargin Ratio: {ratio:.2f}%\n"
+        msg = f"{prefix}📊 Daily Summary\nMargin Ratio: {ratio:.2f}%\n\n"
 
         success = [m for m in summary if "✅" in m]
         fail = [m for m in summary if "❌" in m]
         skipped = [m for m in summary if "skipped" in m]
 
-        msg = f"{prefix}📊 Daily Summary\nMargin Ratio: {ratio:.2f}%\n\n"
 
         if success:
             msg += "✅ Success:\n" + "\n".join(success) + "\n\n"
@@ -170,20 +181,23 @@ def check_exit_conditions():
                     price = float(p["markPrice"])
                     _, qty = adjust_qty_price(sym, price, amt)
                     if qty > 0:
+                        prefix = "[DRY-RUN] " if DRY_RUN else ""
                         if DRY_RUN:
-                            log(f"[DRY-RUN] Skipping exit order for {sym} | BUY | Qty: {qty}")
-                            exit_list.append(f"[DRY-RUN] {sym} would be closed: 5MA: {close_below_5ma}, In B20: {still_bottom20}, BTC<50: {btc_below}")
+                            log(f"{prefix}Skipping exit order for {sym} | BUY | Qty: {qty}")
+                            exit_msg = f"{prefix}{sym} would be closed: 5MA: {close_below_5ma}, In B20: {still_bottom20}, BTC<50: {btc_below}"
                         else:
                             client.futures_create_order(symbol=sym, side="BUY", type="MARKET", quantity=qty, reduceOnly=True)
-                            exit_list.append(f"{sym} closed: 5MA: {close_below_5ma}, In B20: {still_bottom20}, BTC<50: {btc_below}")
+                            exit_msg = f"{prefix}{sym} EXIT | Side: BUY | Qty: {qty:.4f} | Price: {price:.4f}"
+
+                        exit_list.append(exit_msg)
+                        tg_send(exit_msg)
 
             except Exception as e:
                 log(f"Exit check error {sym}: {e}")
         if exit_list:
             ratio = get_margin_ratio()
             prefix = "[DRY-RUN] " if DRY_RUN else ""
-            tg_send(f"{prefix}🚨 Exit Signals [LONG/SHORT] Triggered:\nMargin Ratio: {ratio:.2f}%\n" + "\n".join(exit_list))
-
+            tg_send(f"{prefix}🚨 Exit Signals Triggered\nMargin Ratio: {ratio:.2f}%\n" + "\n".join(exit_list))
 
     except Exception as e:
         log(f"check_exit_conditions error: {e}")
